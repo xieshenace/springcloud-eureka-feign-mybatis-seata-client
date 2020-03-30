@@ -527,3 +527,293 @@ registry {
 注意上述配置和client的配置要一致，2台和多台情况相同。
 
 0.9及之前版本，多tc时，tc会误报异常，此问题0.9之后已经修复，之后的版本应该不会出现此问题。
+
+### 11.项目整合注意事项（本人整合过程中出现的问题特此记录以防止再踩坑）
+1. springCloud微服务项目最外层pom.xml，不要有任何共有Jar，比如：
+```java
+    <?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>2.1.8.RELEASE</version>
+    <relativePath/> <!-- lookup parent from repository -->
+  </parent>
+  <groupId>com.*****</groupId>
+  <artifactId>*****</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>*****</name>
+  <description>parent-project</description>
+  <packaging>pom</packaging>
+
+  <!--工程模块-->
+  <modules>
+    <module>*****-common</module>
+    <module>*****-eureka-server</module>
+    <module>*****-zuul-server</module>
+    <module>*****-....</module>
+  </modules>
+
+  <!--自定义properties属性-->
+  <properties>
+    <spring-cloud.version>Greenwich.SR1</spring-cloud.version>
+  </properties>
+
+  <!-- SpringCloud Greenwich.SR2 -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-dependencies</artifactId>
+        <version>${spring-cloud.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+
+  <!--定义多环境https://blog.csdn.net/qq_33689414/article/details/81812783-->
+  <profiles>
+    <profile>
+      <id>prod</id>
+      <properties>
+        <package.environment>prod</package.environment>
+      </properties>
+    </profile>
+    <profile>
+      <id>test</id>
+      <properties>
+        <package.environment>test</package.environment>
+      </properties>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+    </profile>
+  </profiles>
+
+  <!--插件仅配置公共maven插件，spring-boot-maven-plugin这个插件分别配置到各个微服务避免common打包出现检测到多个main方法问题及微服务工程依赖不到common.jar问题-->
+  <build>
+    <!--指定打包包名-->
+    <finalName>${project.artifactId}</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <source>8</source>
+          <target>8</target>
+          <encoding>utf-8</encoding>
+        </configuration>
+      </plugin>
+    </plugins>
+    <resources>
+      <resource>
+        <directory>src/main/resources/</directory>
+        <!--开启maven filter功能，打包前将功能中的@xx@变量进行替换，如spring.profiles.active根据当前打包指定的环境进行替换-->
+        <filtering>true</filtering>
+        <includes>
+          <!--指定需要将resources文件进行打包-->
+          <include>application.yml</include>
+          <include>bootstrap.yml</include>
+          <include>mapper/*.xml</include>
+          <include>static/**</include>
+          <include>application-${package.environment}.yml</include>
+          <include>logback.${package.environment}.xml</include>
+        </includes>
+      </resource>
+    </resources>
+  </build>
+  <!--依赖仓库-->
+  <repositories><!-- 代码库,改用aliyun的 -->
+    <repository>
+      <id>maven-ali</id>
+      <url>http://maven.aliyun.com/nexus/content/groups/public//</url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+    </repository>
+  </repositories>
+
+  <!--插件仓库，改用aliyun的-->
+  <pluginRepositories>
+    <pluginRepository>
+      <id>alimaven</id>
+      <url>http://maven.aliyun.com/nexus/content/groups/public/</url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+    </pluginRepository>
+  </pluginRepositories>
+</project>
+```
+
+1. eureka服务只需要有个spring-cloud-starter-netflix-eureka-server包就可以，其他都不需要，比如：
+```Java
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.*******</groupId>
+    <artifactId>*******</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>*******-eureka-server</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>vehicle-eureka-server</name>
+  <description>注册中心</description>
+
+  <dependencies>
+    <!-- SpringCloud Eureka -->
+    <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
+    </dependency>
+  </dependencies>
+
+  <!--定义多环境https://blog.csdn.net/qq_33689414/article/details/81812783-->
+  <profiles>
+    <profile>
+      <id>prod</id>
+      <properties>
+        <package.environment>prod</package.environment>
+      </properties>
+    </profile>
+    <profile>
+      <id>test</id>
+      <properties>
+        <package.environment>test</package.environment>
+      </properties>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+    </profile>
+  </profiles>
+
+
+  <!--插件仅配置公共maven插件，spring-boot-maven-plugin这个插件分别配置到各个微服务避免common打包出现检测到多个main方法问题及微服务工程依赖不到common.jar问题-->
+  <build>
+    <!--指定打包包名-->
+    <finalName>${project.artifactId}</finalName>
+
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.3</version>
+        <inherited>true</inherited>
+        <configuration>
+          <source>1.8</source>
+          <target>1.8</target>
+          <encoding>UTF-8</encoding>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <!--依赖仓库-->
+  <repositories><!-- 代码库,改用aliyun的 -->
+    <repository>
+      <id>maven-ali</id>
+      <url>http://maven.aliyun.com/nexus/content/groups/public//</url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+    </repository>
+  </repositories>
+
+  <!--插件仓库，改用aliyun的-->
+  <pluginRepositories>
+    <pluginRepository>
+      <id>alimaven</id>
+      <url>http://maven.aliyun.com/nexus/content/groups/public/</url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+    </pluginRepository>
+  </pluginRepositories>
+</project>
+```
+以及不要配置什么file.conf数据源之类的东西；（除了这个服务其他涉及到业务回滚的服务都需要配置）
+2. file.conf、registry.conf与application.yml整合，首先更改seata pom为：
+```java
+    <!-- Spring Cloud Seata -->
+    <dependency>
+      <groupId>com.alibaba.cloud</groupId>
+      <artifactId>spring-cloud-alibaba-seata</artifactId>
+      <version>2.2.0.RELEASE</version>
+      <exclusions>
+        <exclusion>
+          <groupId>io.seata</groupId>
+          <artifactId>seata-spring-boot-starter</artifactId>
+        </exclusion>
+        <exclusion>
+          <artifactId>seata-all</artifactId>
+          <groupId>io.seata</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>io.seata</groupId>
+      <artifactId>seata-spring-boot-starter</artifactId>
+      <version>1.1.0</version>
+    </dependency>
+    <dependency>
+      <groupId>io.seata</groupId>
+      <artifactId>seata-all</artifactId>
+      <version>1.1.0</version>
+    </dependency>
+```
+1. 启动类不需要加excu**排除自动代理，因为我用的是hikari所以新增如下类：
+```Java
+@Configuration
+public class DataSourceConfigure {
+  @Bean
+  @ConfigurationProperties(prefix = "spring.datasource.hikari")
+  public DataSource dataSource() {
+    return new HikariDataSource();
+  }
+}
+```
+新增application.yml内容为：
+```Java
+seata:
+  enabled: true
+  application-id: user
+  tx-service-group: ksc_tx_group #自定义名字保持统一
+  enable-auto-data-source-proxy: false
+  service:
+    vgroupMapping:
+      ksc_tx_group: seata-server #默认default，这个是seate的名字，改了之后需要改服务端registry.conf 中eureka  application = "seata-server"，保持统一
+    enable-degrade: false
+    disable-global-transaction: false
+  registry:
+    type: eureka
+    eureka:
+      service-url: http://localhost:8888/eureka/
+    weight: 1
+  config:
+    type: file
+```
+出现问题多看看github例子即可解决，新东西版本差别很大注意区别
